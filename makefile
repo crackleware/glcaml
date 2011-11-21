@@ -34,7 +34,10 @@ nosdl:
 	$(MAKE) -f makefile.inc NOSDL=true MLFILE=camera
 	$(MAKE) -f makefile.inc NOSDL=true MLFILE=checker
 	$(MAKE) -f makefile.inc NOSDL=true MLFILE=shader
-	
+
+gles:	
+	$(MAKE) -f makefile.inc GLESONLY=true MLFILE=shader_gles
+
 clean:
 	$(MAKE) -f makefile.inc MLFILE=audiopan clean
 	$(MAKE) -f makefile.inc MLFILE=audiopitch clean
@@ -60,6 +63,7 @@ clean:
 	$(MAKE) -f makefile.inc NOSDL=true MLFILE=camera clean
 	$(MAKE) -f makefile.inc NOSDL=true MLFILE=checker clean
 	$(MAKE) -f makefile.inc NOSDL=true MLFILE=shader clean
+	$(MAKE) -f makefile.inc NOSDL=true MLFILE=gles clean
 
 htmldoc:
-	ocamldoc -v -I lib -html lib/sdl.mli lib/glcaml.mli lib/win.mli lib/sdl_mixer.mli -d doc
+	ocamldoc -v -I lib -html lib/sdl.mli lib/glcaml.mli lib/glescaml.mli lib/win.mli lib/sdl_mixer.mli -d doc

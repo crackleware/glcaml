@@ -139,12 +139,12 @@ let make_func_decl f =
 
 
 (* Create C stub file *)
-let create_c_stub_file () =
+let create_c_stub_file filename =
   let header = read_file "data/header.c" in
   let src =
   List.fold_left (fun i f -> i ^ (sprintf "%s\n" (make_func_decl f))) header !qfunctions
   in
-  write_file src "output/glcaml_stub.c"
+  write_file src filename
 
 
 (* -------------------------------- ML code ---------------------------------*)
@@ -251,12 +251,12 @@ let make_ml_func_decls () =
 
 
 (* Create ML stub file *)
-let create_ml_stub_file () =
+let create_ml_stub_file filename =
   let header = read_file "data/header.ml" in
   let decls = make_gl_constant_decls () in
   let funcs = make_ml_func_decls () in
   let src = header ^ decls ^ funcs in
-  write_file src "output/glcaml.ml"
+  write_file src filename
 
 
 (* ------------------------------- statistics ----------------------------------*)
@@ -402,8 +402,8 @@ let main () =
   parse Sys.argv.(1);
   qconstants := List.rev !qconstants;
   qfunctions := List.sort (fun a b -> String.compare a.fname b.fname) !qfunctions;
-  create_ml_stub_file ();
-  create_c_stub_file ()
+  create_ml_stub_file Sys.argv.(2);
+  create_c_stub_file Sys.argv.(3)
 
 let () = main ()
 
