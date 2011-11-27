@@ -1,11 +1,5 @@
 open Glescaml
 
-
-(* let perspective fov aspect near far = *)
-(*   let h = (tan (fov /. 360.0 *. (4.0 *. (atan 1.0)) )) *. near in *)
-(*   let w = h *. aspect in *)
-(*   glFrustum (-.w) w (-.h) h near far *)
-
 let print_log o =
   let infoLog = String.create 1024 in
   let infologLength = [| String.length infoLog |] in
@@ -21,31 +15,70 @@ let print_log o =
   in
   if s <> "" then print_endline s
 
+let fsSource = "
+/* Fragment shader */
+void main()
+{
+ gl_FragColor[0] = gl_FragCoord[0] / 400.0;
+ gl_FragColor[1] = gl_FragCoord[1] / 400.0;
+ gl_FragColor[2] = 1.0;
+}
+"
 
-let fsSource =
-  "/* Fragment shader */\n" ^
-  "void main()\n" ^
-  "{\n" ^
-  " gl_FragColor[0] = gl_FragCoord[0] / 400.0;\n" ^
-  " gl_FragColor[1] = gl_FragCoord[1] / 400.0;\n" ^
-  " gl_FragColor[2] = 1.0;\n" ^
-  "}\n"
+let vsSource = "
+/* Vertex shader */
+attribute vec4 position;
+uniform mat4 modelViewProjectionMatrix;
+uniform float waveTime;
+uniform float waveWidth;
+uniform float waveHeight;
 
-let vsSource =
-  "/* Vertex shader */\n" ^
-  "uniform float waveTime;\n" ^
-  "uniform float waveWidth;\n" ^
-  "uniform float waveHeight;\n" ^
-  "\n" ^
-  "void main(void)\n" ^
-  "{\n" ^
-  " vec4 v = vec4(gl_Vertex);\n" ^
-  "\n"  ^
-  " v.z = sin(waveWidth * v.x + waveTime) * cos(waveWidth * v.y + waveTime) * waveHeight;\n" ^
-  "\n"  ^
-  " gl_Position = gl_ModelViewProjectionMatrix * v;\n" ^
-  "}\n"
+void main(void)
+{
+ vec4 v = position;
 
+ v.z = sin(waveWidth * v.x + waveTime) * cos(waveWidth * v.y + waveTime) * waveHeight;
+
+ gl_Position = v * modelViewProjectionMatrix;
+}
+"
+
+let vertices =
+  let n = 30 in
+  let lst = ref [] in
+  let add_vert i j =
+    let x, y, z = float_of_int i, float_of_int j, 0.0 in
+    lst := z :: y :: x :: !lst in
+  for i = -n to n do
+    for j = -n to n do
+      add_vert i j;
+      add_vert (i + 1) j;
+      add_vert (i + 1) (j + 1);
+
+      add_vert (i + 1) (j + 1);
+      add_vert i (j + 1);
+      add_vert i j;
+    done
+  done;
+  Bigarray.(Array1.(of_array float32 c_layout (Array.of_list (List.rev !lst))))
+
+let indices = 
+  Bigarray.(
+    let lst = ref [] in
+    for i = 0 to Array1.dim vertices - 1 do lst := i :: !lst done;
+    Array1.(of_array int16_unsigned c_layout (Array.of_list (List.rev !lst))))
+
+let byte_size_of_array1 arr = (* TODO: move to glescaml.ml *)
+  Bigarray.(Array1.(
+    let eltsize = match kind arr with
+        float32        -> 4
+      | int16_unsigned -> 2
+    in
+    dim arr * eltsize
+  ))
+
+let vertexBuffer = ref 0
+let indexBuffer = ref 0
 
 let waveTime = ref 0.0
 let waveWidth = ref 0.1
@@ -56,14 +89,10 @@ let waveWidthLoc = ref 0
 let waveHeightLoc = ref 0
 let fill = ref true
 
+let mvpMatLoc = ref 0
 
 let init () =
-  (* glShadeModel gl_smooth; *)
   glViewport 0 0 (Graphics.size_x()) (Graphics.size_y());
-  (* glMatrixMode gl_projection; *)
-  (* glLoadIdentity (); *)
-  (* perspective 40.0 1.0 0.0001 1000.0; *)
-  (* glMatrixMode gl_modelview; *)
   let vs = glCreateShader gl_vertex_shader in
   glShaderSource vs 1 [| vsSource |] [| String.length vsSource |];
   glCompileShader vs;
@@ -87,12 +116,26 @@ let init () =
   waveHeightLoc := glGetUniformLocation sp "waveHeight";
   print_log sp;
   Printf.printf "wave parameters location: %d %d %d\n" !waveTimeLoc !waveWidthLoc !waveHeightLoc;
-  (* glPolygonMode gl_front_and_back gl_line; *)
+
+  let arr = [| 0 |] in glGenBuffers 1 arr; vertexBuffer := arr.(0);
+  glBindBuffer gl_array_buffer !vertexBuffer;
+  glBufferData gl_array_buffer (byte_size_of_array1 vertices) vertices gl_static_draw;
+  glVertexAttribPointer (glGetAttribLocation sp "position") 3 gl_float false 0 0;
+  glEnableVertexAttribArray (glGetAttribLocation sp "position");
+  
+  let arr = [| 0 |] in glGenBuffers 1 arr; indexBuffer := arr.(0);
+  glBindBuffer gl_element_array_buffer !indexBuffer;
+  glBufferData gl_element_array_buffer (byte_size_of_array1 indices) indices gl_static_draw;
+
+  Printf.printf "vertexBuffer: %d, indexBuffer: %d\n%!" !vertexBuffer !indexBuffer;
+
+  mvpMatLoc := glGetUniformLocation sp "modelViewProjectionMatrix";
+
   ()
 
 let draw k =
   match k with
-  | '0' -> fill := not !fill; ()(* glPolygonMode gl_front_and_back (if !fill then gl_fill else gl_line) *)
+  | '0' -> fill := not !fill
   | '1' -> waveFreq := !waveFreq +. 0.1
   | '2' -> waveFreq := !waveFreq -. 0.1
   | '3' -> waveWidth := !waveWidth +. 0.1
@@ -101,29 +144,33 @@ let draw k =
   | '6' -> waveHeight := !waveHeight -. 0.1
   | _ -> ();
   glClear gl_color_buffer_bit;
-  (* glLoadIdentity (); *)
-  (* glTranslatef 0.0 0.0 (-150.0); *)
-  (* glRotatef (-45.0) 1.0 0.0 0.0; *)
+
+  Matrix_gles.(
+    let m = 
+            rotate (-45.0) 1.0 0.0 0.0
+            ->-
+            translate 0.0 0.0 (-150.0)
+            ->-
+            scale 0.01 0.01 0.01
+            ->-
+            perspective 40.0 1.0 0.0001 1000.0
+    in
+    (* Printf.printf "mvp = [\n%s]\n" (format m); *)
+    glUniformMatrix4fv !mvpMatLoc 1 false m
+  );
+
   (* Change time *)
   glUniform1f !waveTimeLoc !waveTime;
   glUniform1f !waveWidthLoc !waveWidth;
   glUniform1f !waveHeightLoc !waveHeight;
-  (* Draw here a plain surface *)
-  (* glBegin gl_quads; *)
-  (* for i = -50 to 50 do *)
-  (*   for j = -50 to 50 do *)
-  (*   ( *)
-  (*     glVertex2i i j; *)
-  (*     glVertex2i (i + 1) j; *)
-  (*     glVertex2i (i + 1) (j + 1); *)
-  (*     glVertex2i i (j + 1); *)
-  (*   ) *)
-  (*   done *)
-  (* done; *)
-  (* glEnd(); *)
+
+  let nverts = Bigarray.Array1.dim vertices / 3 in
+  glDrawElements
+    (if !fill then gl_triangles else gl_lines)
+    nverts gl_unsigned_short 0;
+
   waveTime := !waveTime +. !waveFreq;
   ()
-
 
 
 (******************************************************************************)
@@ -141,7 +188,7 @@ let rec event_loop f = function
     event_loop f continue
 
 let main () =
-    Graphics.open_graph " 800x600";
+    Graphics.open_graph " 600x600";
     Win.init_opengl ();
     Graphics.set_window_title "";
     glViewport 0 0 (Graphics.size_x ()) (Graphics.size_y ());
